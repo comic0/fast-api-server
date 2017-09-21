@@ -1,0 +1,14 @@
+{
+    "name": "happy-monkey/fast-api",
+    "description": "Fast & Furious API",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Alexandre CHASTAN",
+            "email": "contact@alexchastan.fr"
+        }
+    ],
+    "require": {
+        "usmanhalalit/pixie": "2.*@dev"
+    }
+}

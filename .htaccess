@@ -1,0 +1,10 @@
+Header add Access-Control-Allow-Origin "*"
+Header add Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header add Access-Control-Allow-Headers "Content-Type"
+
+RewriteEngine On
+
+RewriteBase /
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php?query=$1 [QSA,L]
