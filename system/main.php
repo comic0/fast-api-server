@@ -303,7 +303,7 @@ class FastApiCore
                     {
                         case 0 : {
 
-                            $query = $query->select('*');
+                            $query = $this->_prepareQuery($query)->select('*');
 
                             $where = $this->_get_where();
                             foreach ( $where as $field=>$value )
