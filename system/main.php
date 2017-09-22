@@ -5,14 +5,26 @@ require_once BASEPATH."/app/app.php";
 
 class FastApiCore
 {
+    private $mApiKey;
+    private $mRequestPath;
     private $mTable;
-    private $mInput;
     private $mCount;
     private $mModel;
+    private $mSettings;
+    private $mSortField;
+    private $mSort;
+    private $currentUserTable;
+
+    protected $currentUser;
+    protected $mInput;
 
     public function __construct()
     {
+        $this->mSortField = "created_at";
+        $this->mSort = "asc";
+
         $this->_initDB();
+        $this->_readHeaders();
         $this->_readParams();
         $this->_executeRoute();
     }
@@ -37,6 +49,37 @@ class FastApiCore
         $this->_json_result("Your API is ready to use :)");
     }
 
+    protected function select( $table, $where=array() )
+    {
+        $query = QB::table($table);
+
+        foreach ( $where as $field=>$value )
+        {
+            $query = $query->where($field, $value);
+        }
+
+        return $query;
+    }
+
+    protected function insert( $table, $data )
+    {
+        $query = QB::table($table);
+
+        if( $this->_isNumericArray($data) )
+        {
+            foreach ( $data as $key=>$row )
+            {
+                $data[$key]["created_at"] = date("Y-m-d H:i:s");
+            }
+        }
+        else
+        {
+            $data["created_at"] = date("Y-m-d H:i:s");
+        }
+
+        return $query->insert($data);
+    }
+
     protected function error( $message )
     {
         $this->_json_error($message);
@@ -56,9 +99,34 @@ class FastApiCore
         }
     }
 
-    private function _prepare_input()
+    private function _readHeaders()
     {
-        $this->mInput = $this->_prepare_input_item($this->mTable, $this->mInput);
+        $headers = getallheaders();
+        $this->mRequestPath = trim($_GET['query'], '/');
+
+        if( !empty($query) )
+        {
+            if( !isset($headers['X-Fast-Api-Key']) )
+            {
+                $this->error("No api key provided");
+            }
+
+            if( $headers['X-Fast-Api-Key']!=$this->mApiKey )
+            {
+                $this->error("Wrong api key");
+            }
+        }
+
+        if( isset($headers['X-Api-Logged-Id']) && isset($headers['X-Api-Logged-Type']) )
+        {
+            $this->currentUserTable = $headers['X-Api-Logged-Type'];
+            $this->currentUser = QB::table($this->currentUserTable)->find(intval($headers['X-Api-Logged-Id']));
+        }
+    }
+
+    private function _prepare_input( $table )
+    {
+        $this->mInput = $this->_prepare_input_item($table, $this->mInput);
     }
 
     private function _get_where()
@@ -162,6 +230,9 @@ class FastApiCore
 
             new \Pixie\Connection('mysql', $database, 'QB');
             $this->mModel = new Models($database['database']);
+
+            require_once BASEPATH."/app/config/apikey.php";
+            $this->mApiKey = $apikey;
         }
         else
         {
@@ -173,16 +244,21 @@ class FastApiCore
     {
         if( isset($_GET['query']) )
         {
-            $query = explode('/', trim($_GET['query'], '/'));
+            $query = explode('/', $this->mRequestPath);
             $method = $_SERVER['REQUEST_METHOD'];
 
             if( count($query)>0 )
             {
-                $table = array_shift($query);
+                $settings = explode(':', array_shift($query));
+                $table = array_shift($settings);
+
+                $this->mSettings = $settings;
+                $this->_prepare_input($table);
 
                 if( method_exists($this, $table."_".$method) )
                 {
-                    call_user_func_array(array($this, $table."_".$method), $query);
+                    $result = call_user_func_array(array($this, $table."_".$method), $query);
+                    $this->_json_result($result);
                 }
                 else
                 {
@@ -206,6 +282,30 @@ class FastApiCore
         if( isset($_GET['offset']) )
         {
             $query = $query->offset(intval($_GET['offset']));
+        }
+
+        if( isset($_GET['orderBy']) )
+        {
+            $this->mSortField = $_GET['orderBy'];
+        }
+
+        if( isset($_GET['order']) )
+        {
+            $order = strtoupper($_GET['order']);
+
+            if( in_array($order, ['ASC', 'DESC']) )
+            {
+                $this->mSort = $order;
+            }
+        }
+
+        if( in_array('last', $this->mSettings) )
+        {
+            $query = $query->orderBy($this->mSortField, $this->mSort=='ASC'? 'DESC' : 'ASC');
+        }
+        else
+        {
+            $query = $query->orderBy($this->mSortField, $this->mSort);
         }
 
         return $query;
@@ -288,7 +388,6 @@ class FastApiCore
         try {
 
             $this->mTable = $table;
-            $this->_prepare_input();
 
             $result = null;
             $query = QB::table($table);
@@ -297,20 +396,13 @@ class FastApiCore
             {
                 case 'GET' : {
 
-                    $returnOne = false;
+                    $returnOne = in_array('first', $this->mSettings) || in_array('last', $this->mSettings);
 
                     switch (count($data))
                     {
                         case 0 : {
 
-                            $query = $this->_prepareQuery($query)->select('*');
-
-                            $where = $this->_get_where();
-                            foreach ( $where as $field=>$value )
-                            {
-                                $query = $query->where($field, $value);
-                            }
-
+                            $query = $this->_prepareQuery($this->select($table, $this->_get_where()));
                             $this->mCount = $query->count();
                             $result = $query->get();
                             break;
@@ -321,9 +413,10 @@ class FastApiCore
                             if( is_numeric($data[0]) )
                             {
                                 $returnOne = true;
-                                $query = $query->where('id', $data[0]);
+
+                                $query = $this->_prepareQuery($this->select($table, ["id"=>$data[0]]));
                                 $this->mCount = $query->count();
-                                $result = $this->_prepareQuery($query)->get();
+                                $result = $query->get();
                                 break;
                             }
 
@@ -332,19 +425,19 @@ class FastApiCore
 
                         case 2 : {
 
-                            $query = $query->where($data[0], $data[1]);
+                            $query = $this->_prepareQuery($this->select($table, [$data[0]=>$data[1]]));
                             $this->mCount = $query->count();
-                            $result = $this->_prepareQuery($query)->get();
+                            $result = $query->get();
                             break;
                         }
                     }
-
-                    $this->_includeSubQueries($result);
 
                     foreach( $result as $i=>$row )
                     {
                         $result[$i]->__type = $table;
                     }
+
+                    $this->_includeSubQueries($result);
 
                     if( $returnOne )
                     {
@@ -369,26 +462,30 @@ class FastApiCore
                         }
                     }
 
-                    $insertId = $query->insert($object);
-                    $result = $this->_prepareQuery($query)->find($insertId);
 
-                    foreach( $batch as $table=>$rows )
+                    $insertId = $this->insert($table, $object);
+                    $result = $this->select($table, ['id'=>$insertId])->first();
+
+                    if( $result )
                     {
-                        $model = $this->mModel->getTable($table);
-
-                        if( isset($model->constraints[$this->mTable]) )
+                        foreach( $batch as $child=>$rows )
                         {
-                            foreach ( $model->constraints[$this->mTable] as $srcField=>$dstField )
+                            $model = $this->mModel->getTable($child);
+
+                            if( isset($model->constraints[$this->mTable]) )
                             {
-                                foreach ( $rows as $i=>$row )
+                                foreach ( $model->constraints[$this->mTable] as $srcField=>$dstField )
                                 {
-                                    $row[$srcField] = $insertId;
-                                    $rows[$i] = $row;
+                                    foreach ( $rows as $i=>$row )
+                                    {
+                                        $row[$srcField] = $insertId;
+                                        $rows[$i] = $row;
+                                    }
                                 }
                             }
-                        }
 
-                        QB::table($table)->insert($rows);
+                            $this->insert($child, $rows);
+                        }
                     }
 
                     break;

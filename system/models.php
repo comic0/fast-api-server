@@ -111,10 +111,12 @@ class Table
 
     private function initEvents()
     {
+        /*
         QB::registerEvent('after-insert', $this->name, function($qb, $insertId)
         {
+
             $qb->table($this->name)->where('id', $insertId)->update(['created_at'=>date("Y-m-d H:i:s")]);
-        });
+        });*/
 
         QB::registerEvent('before-*', $this->name, function ($qb)
         {

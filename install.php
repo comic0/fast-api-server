@@ -8,6 +8,8 @@ $error = false;
 
 if( isset($_POST['host']) )
 {
+    $apikey = substr(str_shuffle(str_repeat("azertyuiopqsdfghjklmwxcvbn0123456789", 10)),-32);
+
     $database = array(
         'driver'    => 'mysql', // Db driver
         'host'      => $_POST['host'],
@@ -35,6 +37,7 @@ if( isset($_POST['host']) )
         }
 
         file_put_contents(BASEPATH."/app/config/database.php", $databaseFile);
+        file_put_contents(BASEPATH."/app/config/apikey.php", "<?php\n\$apikey = \"$apikey\";");
         header("Location: /");
         die();
 
