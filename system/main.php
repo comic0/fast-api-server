@@ -49,6 +49,43 @@ class FastApiCore
         $this->_json_result("Your API is ready to use :)");
     }
 
+    private function upload_post()
+    {
+        $dir = BASEPATH."/uploads";
+        if( !file_exists($dir) )
+        {
+            mkdir($dir, 0777);
+        }
+
+        if( isset($_FILES['file']) )
+        {
+            $name = $_FILES['file']['name'];
+            $ext = substr($name, strrpos($name, "."));
+            $uploadName = date("YmdHis_").md5(time().rand(0,100)).$ext;
+
+            if( move_uploaded_file($_FILES['file']['tmp_name'], $dir.'/'.$uploadName) )
+            {
+                return array(
+                    "filename"=>$uploadName,
+                    "url" => $this->base_url("uploads/".$uploadName)
+                );
+            }
+            else
+            {
+                $this->error("Error during file upload");
+            }
+        }
+
+        $this->error("No file provided");
+    }
+
+    protected function base_url( $path='' )
+    {
+        $url = "http" . (($_SERVER['SERVER_PORT'] == 443) ? "s://" : "://") . $_SERVER['HTTP_HOST'] . '/'. $path;
+
+        return $url;
+    }
+
     protected function select( $table, $where=array() )
     {
         $query = QB::table($table);
@@ -247,6 +284,11 @@ class FastApiCore
             $query = explode('/', $this->mRequestPath);
             $method = $_SERVER['REQUEST_METHOD'];
 
+            if( $method=="OPTIONS" )
+            {
+                $this->_json_result('ok');
+            }
+
             if( count($query)>0 )
             {
                 $settings = explode(':', array_shift($query));
@@ -313,7 +355,7 @@ class FastApiCore
 
     private function _includeSubQueries( &$result )
     {
-        if( isset($_GET['full']) )
+        if( isset($_GET['full']) || in_array('full', $this->mSettings) )
         {
             $model = $this->mModel->getTable($this->mTable);
 
@@ -574,13 +616,6 @@ class FastApiCore
                         $query->where($field, $value)->delete();
                     }
 
-                    break;
-                }
-
-                case 'OPTION' : {
-
-                    echo 'ok';
-                    die();
                     break;
                 }
             }

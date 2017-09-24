@@ -1,6 +1,6 @@
 Header add Access-Control-Allow-Origin "*"
 Header add Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
-Header add Access-Control-Allow-Headers "Content-Type"
+Header add Access-Control-Allow-Headers "Access-Control-Allow-Headers, Origin,Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers, X-Fast-Api-Key, X-Api-Logged-Id, X-Api-Logged-Type"
 
 RewriteEngine On
 
