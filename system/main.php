@@ -163,7 +163,19 @@ class FastApiCore
 
     private function _prepare_input( $table )
     {
-        $this->mInput = $this->_prepare_input_item($table, $this->mInput);
+        if( $this->_isNumericArray($this->mInput) )
+        {
+            $rows = array();
+            foreach ( $this->mInput as $row )
+            {
+                $rows[] = $this->_prepare_input_item($table, $row);
+            }
+            $this->mInput = $rows;
+        }
+        else
+        {
+            $this->mInput = $this->_prepare_input_item($table, $this->mInput);
+        }
     }
 
     private function _get_where()
@@ -299,8 +311,15 @@ class FastApiCore
 
                 if( method_exists($this, $table."_".$method) )
                 {
-                    $result = call_user_func_array(array($this, $table."_".$method), $query);
-                    $this->_json_result($result);
+                    try {
+
+                        $result = call_user_func_array(array($this, $table."_".$method), $query);
+                        $this->_json_result($result);
+
+                    } catch ( Exception $exception ){
+
+                        $this->error($exception->getMessage());
+                    }
                 }
                 else
                 {
@@ -491,45 +510,52 @@ class FastApiCore
 
                 case 'PUT' : {
 
-                    $object = $this->mInput;
-                    $batch = array();
+                    $input = $this->mInput;
+                    $objects = $this->_isNumericArray($input)? $input : [$input];
+                    $result = array();
 
-                    foreach( $object as $key=>$item )
+                    foreach( $objects as $object )
                     {
-                        if( is_array($item) )
+                        $batch = array();
+
+                        foreach( $object as $key=>$item )
                         {
-                            if( $this->_isNumericArray($item) )
-                                $batch[$key] = $item;
-                            unset($object[$key]);
-                        }
-                    }
-
-
-                    $insertId = $this->insert($table, $object);
-                    $result = $this->select($table, ['id'=>$insertId])->first();
-
-                    if( $result )
-                    {
-                        foreach( $batch as $child=>$rows )
-                        {
-                            $model = $this->mModel->getTable($child);
-
-                            if( isset($model->constraints[$this->mTable]) )
+                            if( is_array($item) )
                             {
-                                foreach ( $model->constraints[$this->mTable] as $srcField=>$dstField )
+                                if( $this->_isNumericArray($item) )
+                                    $batch[$key] = $item;
+                                unset($object[$key]);
+                            }
+                        }
+
+                        $insertId = $this->insert($table, $object);
+                        $insertObject = $this->select($table, ['id'=>$insertId])->first();
+
+                        if( $insertObject )
+                        {
+                            foreach( $batch as $child=>$rows )
+                            {
+                                $model = $this->mModel->getTable($child);
+
+                                if( isset($model->constraints[$this->mTable]) )
                                 {
-                                    foreach ( $rows as $i=>$row )
+                                    foreach ( $model->constraints[$this->mTable] as $srcField=>$dstField )
                                     {
-                                        $row[$srcField] = $insertId;
-                                        $rows[$i] = $row;
+                                        foreach ( $rows as $i=>$row )
+                                        {
+                                            $row[$srcField] = $insertId;
+                                            $rows[$i] = $row;
+                                        }
                                     }
                                 }
+
+                                $this->insert($child, $rows);
                             }
 
-                            $this->insert($child, $rows);
+                            $result[] = $insertObject;
                         }
-                    }
 
+                    }
                     break;
                 }
 
