@@ -1,10 +1,12 @@
 <?php
 
 require_once BASEPATH."/system/models.php";
+require_once BASEPATH."/system/push.php";
 require_once BASEPATH."/app/app.php";
 
 class FastApiCore
 {
+    private $mPush;
     private $mApiKey;
     private $mRequestPath;
     private $mTable;
@@ -44,6 +46,32 @@ class FastApiCore
         return $value;
     }
 
+    public function callback_phone( $value ){
+
+        if( !empty($value) )
+        {
+            $locale = Locale::acceptFromHttp($_SERVER['HTTP_ACCEPT_LANGUAGE']);;
+
+            if( isset($this->currentUser) && isset($this->currentUser->locale) && !empty($this->currentUser->locale) )
+            {
+                $locale = $this->currentUser->locale;
+            }
+
+            $phoneUtil = \libphonenumber\PhoneNumberUtil::getInstance();
+            try {
+                $number = $phoneUtil->parse($value, substr($locale, -2));
+                $formatted = $phoneUtil->format($number, \libphonenumber\PhoneNumberFormat::E164);
+
+                return $formatted;
+
+            } catch (\libphonenumber\NumberParseException $e) {
+                $this->error("Incorrect phone number");
+            }
+        }
+
+        return $value;
+    }
+
     private function index()
     {
         $this->_json_result("Your API is ready to use :)");
@@ -77,6 +105,56 @@ class FastApiCore
         }
 
         $this->error("No file provided");
+    }
+
+    private function push_post()
+    {
+        $data = json_decode(file_get_contents('php://input'));
+
+        if( isset($data->src) && isset($data->title) && isset($data->message) )
+        {
+            $src = explode(":", $data->src);
+            $table = $src[0];
+            $query = QB::table($table);
+            $field = 'token';
+
+            if( count($src)>1 )
+            {
+                $field = $src[1];
+            }
+
+            if( isset($data->where) )
+            {
+                $where = (array) $data->where;
+
+                foreach( $where as $key=>$value )
+                {
+                    if( is_array($value) )
+                    {
+                        $query = $query->whereIn($key, $value);
+                    }
+                    else
+                    {
+                        $query = $query->where($key, $value);
+                    }
+                }
+            }
+
+            //$model = $this->mModel->getTable($table);
+            //print_r($model);
+
+            $query = $query->groupBy($field);
+            $results = $query->get();
+
+            $tokens = [];
+
+            foreach( $results as $result )
+            {
+                $tokens[] = $result->$field;
+            }
+
+            return $this->mPush->sendMessage( $tokens, $data->title, $data->message );
+        }
     }
 
     protected function base_url( $path='' )
@@ -136,28 +214,46 @@ class FastApiCore
         }
     }
 
-    private function _readHeaders()
+    private function _getHeader( $name )
     {
         $headers = getallheaders();
+
+        if( isset($headers[$name]) )
+        {
+            return $headers[$name];
+        }
+
+        if( isset($headers[strtolower($name)]) )
+        {
+            return $headers[strtolower($name)];
+        }
+
+        return false;
+    }
+
+    private function _readHeaders()
+    {
         $this->mRequestPath = trim($_GET['query'], '/');
 
         if( !empty($query) )
         {
-            if( !isset($headers['X-Fast-Api-Key']) )
+            if( $apiKey = $this->_getHeader('X-Fast-Api-Key') )
+            {
+                if( $apiKey!=$this->mApiKey )
+                {
+                    $this->error("Wrong api key");
+                }
+            }
+            else
             {
                 $this->error("No api key provided");
             }
-
-            if( $headers['X-Fast-Api-Key']!=$this->mApiKey )
-            {
-                $this->error("Wrong api key");
-            }
         }
 
-        if( isset($headers['X-Api-Logged-Id']) && isset($headers['X-Api-Logged-Type']) )
+        if( ($loggedId = $this->_getHeader('X-Api-Logged-Id')) && ($loggedType = $this->_getHeader('X-Api-Logged-Type')) )
         {
-            $this->currentUserTable = $headers['X-Api-Logged-Type'];
-            $this->currentUser = QB::table($this->currentUserTable)->find(intval($headers['X-Api-Logged-Id']));
+            $this->currentUserTable = $loggedType;
+            $this->currentUser = QB::table($this->currentUserTable)->find(intval($loggedId));
         }
     }
 
@@ -280,8 +376,13 @@ class FastApiCore
             new \Pixie\Connection('mysql', $database, 'QB');
             $this->mModel = new Models($database['database']);
 
-            require_once BASEPATH."/app/config/apikey.php";
+            require_once BASEPATH . "/app/config/appkeys.php";
             $this->mApiKey = $apikey;
+
+            if( isset($pushkey) && !empty($pushkey) )
+            {
+                $this->mPush = new Push( $pushkey );
+            }
         }
         else
         {
@@ -511,7 +612,8 @@ class FastApiCore
                 case 'PUT' : {
 
                     $input = $this->mInput;
-                    $objects = $this->_isNumericArray($input)? $input : [$input];
+                    $returnOne = !$this->_isNumericArray($input);
+                    $objects = $returnOne? [$input] : $input;
                     $result = array();
 
                     foreach( $objects as $object )
@@ -555,6 +657,13 @@ class FastApiCore
                             $result[] = $insertObject;
                         }
 
+                        foreach( $result as $i=>$row )
+                        {
+                            $result[$i]->__type = $table;
+                        }
+
+                        if( $returnOne )
+                            $result = $result[0];
                     }
                     break;
                 }

@@ -37,7 +37,7 @@ if( isset($_POST['host']) )
         }
 
         file_put_contents(BASEPATH."/app/config/database.php", $databaseFile);
-        file_put_contents(BASEPATH."/app/config/apikey.php", "<?php\n\$apikey = \"$apikey\";");
+        file_put_contents(BASEPATH."/app/config/appkeys.php", "<?php\n\$apikey = \"$apikey\";");
         header("Location: /");
         die();
 

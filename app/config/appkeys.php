@@ -1,0 +1,3 @@
+<?php
+$apikey = "opns4s2bfsnhtqi64t0gy580i2mxrquq";
+$pushkey = "AAAAxHmZ0C4:APA91bGv42uLDORTZjTKkmTzIC0dHXYWfn7icIsieAfrOZfzB6cTArX7y6z3oB1MF1awkoeMTVUrq6n5lfqEYgXoi2PbVPMcCJ8EiWG8-oAJe9WsNQavVZisNej5kLzn4IIzyCIHLplW";

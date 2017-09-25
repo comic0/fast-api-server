@@ -9,6 +9,8 @@
         }
     ],
     "require": {
-        "usmanhalalit/pixie": "2.*@dev"
+        "usmanhalalit/pixie": "2.*@dev",
+        "sngrl/php-firebase-cloud-messaging": "dev-master",
+        "giggsey/libphonenumber-for-php": "^8.8"
     }
 }
