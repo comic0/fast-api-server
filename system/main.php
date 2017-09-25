@@ -58,11 +58,16 @@ class FastApiCore
             }
 
             $phoneUtil = \libphonenumber\PhoneNumberUtil::getInstance();
+
             try {
                 $number = $phoneUtil->parse($value, substr($locale, -2));
-                $formatted = $phoneUtil->format($number, \libphonenumber\PhoneNumberFormat::E164);
 
-                return $formatted;
+                if( $phoneUtil->isValidNumber($number) )
+                {
+                    return $phoneUtil->format($number, \libphonenumber\PhoneNumberFormat::E164);
+                }
+
+                $this->error("Incorrect phone number");
 
             } catch (\libphonenumber\NumberParseException $e) {
                 $this->error("Incorrect phone number");
