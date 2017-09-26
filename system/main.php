@@ -175,7 +175,18 @@ class FastApiCore
 
         foreach ( $where as $field=>$value )
         {
-            $query = $query->where($field, $value);
+            if( is_array($value) )
+            {
+                $query = $query->whereIn($field, $value)
+            }
+            else if( is_null($value) )
+            {
+                $query = $query->whereNull($field);
+            }
+            else
+            {
+                $query = $query->where($field, $value);
+            }
         }
 
         return $query;
@@ -287,7 +298,7 @@ class FastApiCore
         {
             if( substr($key, 0, 6)=='where_' )
             {
-                $where[substr($key, 6)] = $value;
+                $where[substr($key, 6)] = json_decode($value, true);
             }
         }
 
