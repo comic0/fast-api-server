@@ -324,7 +324,14 @@ class FastApiCore
         {
             if( substr($key, 0, 6)=='where_' )
             {
-                $where[substr($key, 6)] = json_decode($value);
+                $json = json_decode($value);
+
+                if( json_last_error()==JSON_ERROR_NONE )
+                {
+                    $value = $json;
+                }
+
+                $where[substr($key, 6)] = $value;
             }
         }
 
