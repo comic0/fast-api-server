@@ -175,17 +175,43 @@ class FastApiCore
 
         foreach ( $where as $field=>$value )
         {
-            if( is_array($value) )
+            if( substr($field, 0, 3)!="not" )
             {
-                $query = $query->whereIn($field, $value);
-            }
-            else if( is_null($value) )
-            {
-                $query = $query->whereNull($field);
+                if( is_array($value) )
+                {
+                    if( count($value)>0 )
+                    {
+                        $query = $query->whereIn($field, $value);
+                    }
+                }
+                else if( is_null($value) )
+                {
+                    $query = $query->whereNull($field);
+                }
+                else
+                {
+                    $query = $query->where($field, $value);
+                }
             }
             else
             {
-                $query = $query->where($field, $value);
+                $field = substr($field, 4);
+
+                if( is_array($value) )
+                {
+                    if( count($value)>0 )
+                    {
+                        $query = $query->whereNotIn($field, $value);
+                    }
+                }
+                else if( is_null($value) )
+                {
+                    $query = $query->whereNotNull($field);
+                }
+                else
+                {
+                    $query = $query->whereNot($field, $value);
+                }
             }
         }
 
@@ -298,7 +324,7 @@ class FastApiCore
         {
             if( substr($key, 0, 6)=='where_' )
             {
-                $where[substr($key, 6)] = json_decode($value, true);
+                $where[substr($key, 6)] = json_decode($value);
             }
         }
 
@@ -329,7 +355,15 @@ class FastApiCore
                     $data = array();
                     foreach ( $value as $item )
                     {
-                        $data[] = $this->_prepare_input_item($key, $item);
+                        if( is_array($item) )
+                        {
+                            $data[] = $this->_prepare_input_item($key, $item);
+                        }
+                        else
+                        {
+                            $field = $table->getField($key);
+                            $data[] = $this->_prepare_field_value($field->Comment, $item);
+                        }
                     }
                     $result[$key] = $data;
                 }
