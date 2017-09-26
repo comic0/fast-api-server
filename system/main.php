@@ -177,7 +177,7 @@ class FastApiCore
         {
             if( is_array($value) )
             {
-                $query = $query->whereIn($field, $value)
+                $query = $query->whereIn($field, $value);
             }
             else if( is_null($value) )
             {
