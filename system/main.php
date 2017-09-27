@@ -136,7 +136,10 @@ class FastApiCore
                 {
                     if( is_array($value) )
                     {
-                        $query = $query->whereIn($key, $value);
+                        if( count($value)>0 )
+                        {
+                            $query = $query->whereIn($key, $value);
+                        }
                     }
                     else
                     {
@@ -391,9 +394,10 @@ class FastApiCore
 
     private function _json_result( $data )
     {
-        header("Content-type: application/json");
 
-        if( isset($_GET['first']) && is_array($data) )
+        $returnOne = in_array('first', $this->mSettings) || in_array('last', $this->mSettings);;
+
+        if( $returnOne && is_array($data) )
         {
             $data = $data[0];
         }
@@ -408,7 +412,12 @@ class FastApiCore
             $result["num_rows"] = $this->mCount;
         }
 
-        echo json_encode($result);
+        $data = json_encode($result);
+
+        header("Content-type: application/json");
+        header("Content-length: ".strlen($data));
+
+        echo $data;
         die();
     }
 
@@ -481,7 +490,9 @@ class FastApiCore
                 }
                 else
                 {
-                    call_user_func_array(array($this, '_execute'), array($method, $table, $query));
+                    $this->mTable = $table;
+                    $result = call_user_func_array(array($this, '_execute'), array($method, $table, $query, $this->_get_where()));
+                    $this->_json_result($result);
                 }
             }
         }
@@ -530,59 +541,117 @@ class FastApiCore
         return $query;
     }
 
-    private function _includeSubQueries( &$result )
+    private function _fillObjects( $objectTable , &$result )
     {
-        if( isset($_GET['full']) || in_array('full', $this->mSettings) )
+        $model = $this->mModel->getTable($objectTable);
+
+        foreach ( $model->constraints as $table=>$where )
         {
-            $model = $this->mModel->getTable($this->mTable);
-
-            foreach ( $model->constraints as $table=>$where )
+            foreach ( $result as $i=>$row )
             {
-                foreach ( $result as $i=>$row )
+                foreach( $where as $dstField=>$srcField )
                 {
-                    foreach( $where as $dstField=>$srcField )
-                    {
-                        $query = QB::table($table);
-                        $query = $query->where($srcField, $row->$dstField);
-                        $fieldName = trim(trim($dstField, "id"), "_");
+                    $query = QB::table($table);
+                    $query = $query->where($srcField, $row->$dstField);
+                    $fieldName = trim(trim($dstField, "id"), "_");
 
-                        $object = $query->first();
-                        $object->__type = $table;
-                        $result[$i]->$fieldName = $object;
-                    }
+                    $object = $query->first();
+                    $object->__type = $table;
+                    $result[$i]->$fieldName = $object;
                 }
             }
+        }
+    }
+
+    private function _addChildren( &$result, $table, $data, $full=false)
+    {
+
+        $includes = explode(":", $data);
+        $query = array_shift($includes);
+
+        if (preg_match("#([a-z0-9]+)\[(.*)\]#i", $query, $matches))
+        {
+            $childrenTable = $matches[1];
+            $linkField = $matches[2];
+        }
+        else
+        {
+            $childrenTable = $query;
+            $linkField = null;
+        }
+
+        $model = $this->mModel->getTable($childrenTable);
+
+        if( isset($model->constraints[$table]) )
+        {
+            foreach ( $result as $i=>$row)
+            {
+                $query = QB::table($model->name);
+
+                if( empty($linkField) )
+                {
+                    $where = $model->constraints[$table];
+
+                    foreach( $where as $dstField=>$srcField )
+                    {
+                        $query = $query->where($dstField, $row->$srcField);
+                    }
+                }
+                else
+                {
+                    $where = $model->constraints[$table];
+                    $fields = explode("|", $linkField);
+
+                    foreach( $where as $dstField=>$srcField )
+                    {
+                        if( in_array($dstField, $fields) )
+                        {
+                            $query = $query->orWhere($dstField, $row->$srcField);
+                        }
+                    }
+                }
+
+                $objects = $query->get();
+
+                foreach( $includes as $include )
+                {
+                    $this->_addChildren($objects, $childrenTable, $include);
+                }
+
+                if( $full )
+                {
+                    $this->_fillObjects($childrenTable, $objects);
+                }
+
+                foreach ( $objects as $j=>$object )
+                {
+                    $objects[$j]->__type = $model->name;
+                }
+
+                $result[$i]->{$model->name} = $objects;
+            }
+        }
+    }
+
+    private function _includeSubQueries( &$result, $currentTable=null )
+    {
+        if( is_null($currentTable) )
+            $currentTable = $this->mTable;
+
+        $neededFullObjects = isset($_GET['full']) || in_array('full', $this->mSettings);
+
+        if( $neededFullObjects )
+        {
+            $this->_fillObjects($currentTable, $result);
         }
 
         if( isset($_GET['include']) )
         {
             $tables = explode(",", $_GET['include']);
 
-            foreach ( $result as $i=>$row )
+            foreach ( $tables as $data )
             {
-                foreach ( $tables as $table )
-                {
-                    $model = $this->mModel->getTable($table);
-
-                    if( isset($model->constraints[$this->mTable]) )
-                    {
-                        $where = $model->constraints[$this->mTable];
-                        $query = QB::table($model->name);
-                        foreach( $where as $dstField=>$srcField )
-                        {
-                            $query = $query->where($dstField, $row->$srcField);
-                        }
-
-                        $objects = $query->get();
-                        foreach ( $objects as $j=>$object )
-                        {
-                            $objects[$j]->__type = $model->name;
-                        }
-
-                        $result[$i]->{$model->name} = $objects;
-                    }
-
-                }
+                $this->_addChildren($result, $currentTable, $data, $neededFullObjects);
             }
         }
     }
@@ -602,11 +671,9 @@ class FastApiCore
         return true;
     }
 
-    private function _execute($method, $table, $data=array() )
+    private function _execute($method, $table, $data=array(), $where=array() )
     {
         try {
-
-            $this->mTable = $table;
 
             $result = null;
             $query = QB::table($table);
@@ -615,13 +682,11 @@ class FastApiCore
             {
                 case 'GET' : {
 
-                    $returnOne = in_array('first', $this->mSettings) || in_array('last', $this->mSettings);
-
                     switch (count($data))
                     {
                         case 0 : {
 
-                            $query = $this->_prepareQuery($this->select($table, $this->_get_where()));
+                            $query = $this->_prepareQuery($this->select($table, $where));
                             $this->mCount = $query->count();
                             $result = $query->get();
                             break;
@@ -656,12 +721,7 @@ class FastApiCore
                         $result[$i]->__type = $table;
                     }
 
-                    $this->_includeSubQueries($result);
-
-                    if( $returnOne )
-                    {
-                        $result = count($result)>0? $result[0] : null;
-                    }
+                    $this->_includeSubQueries($result, $table);
 
                     break;
                 }
@@ -696,9 +756,9 @@ class FastApiCore
                             {
                                 $model = $this->mModel->getTable($child);
 
-                                if( isset($model->constraints[$this->mTable]) )
+                                if( isset($model->constraints[$table]) )
                                 {
-                                    foreach ( $model->constraints[$this->mTable] as $srcField=>$dstField )
+                                    foreach ( $model->constraints[$table] as $srcField=>$dstField )
                                     {
                                         foreach ( $rows as $i=>$row )
                                         {
@@ -812,7 +872,7 @@ class FastApiCore
                 }
             }
 
-            $this->_json_result($result);
+            return $result;
 
         } catch ( Exception $e ) {
 
